@@ -1,0 +1,23 @@
+{
+  "scope": "Baseline qualification only. No Devin fix, repaired candidate or release approval is claimed.",
+  "superset_source_sha": "c37118edd0146019ab0ae4ae1a97a597cb56c88e",
+  "browser_check": "Actual Superset login and SQL Lab against synthetic MySQL fixture: COUNT=3, SUM=6.",
+  "defect_reproduction": "6 of 9 baseline time-grain cases fail; see mysql-baseline.json.",
+  "artifacts": [
+    {
+      "path": "cognition-evidence/baseline-c37118ed/superset-sql-lab.png",
+      "bytes": 62104,
+      "sha256": "bdd5dceb58015f753ea525231b0822de363e7cc72f389c806e0a76661ad07a5c"
+    },
+    {
+      "path": "cognition-evidence/baseline-c37118ed/superset-baseline.webm",
+      "bytes": 286736,
+      "sha256": "755f7691868d4185fa5c93a23836294be858b45c19a883870e2ac6cc443fbf46"
+    },
+    {
+      "path": "cognition-evidence/baseline-c37118ed/mysql-baseline.json",
+      "bytes": 5623,
+      "sha256": "3795c69879a13c0f74e86ca937f763013993278ebaed2555ccd223f636007c3d"
+    }
+  ]
+}
