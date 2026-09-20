@@ -96,6 +96,34 @@ def test_returns_column_descriptions(mocker: MockerFixture) -> None:
     ]
 
 
+def test_executes_probe_statement_once(mocker: MockerFixture) -> None:
+    """
+    The probe statement is dispatched only through `db_engine_spec.execute`.
+    """
+    database = mocker.MagicMock()
+    cursor = mocker.MagicMock()
+    db_engine_spec = mocker.MagicMock()
+
+    cursor.description = (("foo", "string"),)
+    database.get_raw_connection.return_value.__enter__.return_value.cursor.return_value = cursor  # noqa: E501
+    database.db_engine_spec = db_engine_spec
+    database.get_column_description_limit_size.return_value = 1
+    database.apply_limit_to_sql.return_value = "SELECT * FROM table LIMIT 1"
+    database.mutate_sql_based_on_config.return_value = "SELECT * FROM mutated LIMIT 1"
+    db_engine_spec.fetch_data.return_value = [("col1",)]
+
+    get_columns_description(database, "catalog", "schema", "SELECT * FROM table")
+
+    cursor.execute.assert_not_called()
+    db_engine_spec.execute.assert_called_once_with(
+        cursor, "SELECT * FROM mutated LIMIT 1", database
+    )
+    database.apply_limit_to_sql.assert_called_once_with("SELECT * FROM table", limit=1)
+    database.mutate_sql_based_on_config.assert_called_once_with(
+        "SELECT * FROM table LIMIT 1"
+    )
+
+
 def test_get_virtual_table_metadata(mocker: MockerFixture) -> None:
     """
     Test the `get_virtual_table_metadata` function.
