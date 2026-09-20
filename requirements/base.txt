@@ -311,7 +311,7 @@ pygeohash==3.2.2
     # via apache-superset (pyproject.toml)
 pygments==2.19.1
     # via rich
-pyjwt==2.10.1
+pyjwt==2.14.0
     # via
     #   apache-superset (pyproject.toml)
     #   flask-appbuilder
