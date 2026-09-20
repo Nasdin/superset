@@ -20,7 +20,9 @@ from decimal import Decimal
 from typing import Any, Optional
 from unittest.mock import Mock, patch
 
+import duckdb
 import pytest
+import sqlglot
 from sqlalchemy import types
 from sqlalchemy.dialects.mysql import (
     BIT,
@@ -36,6 +38,7 @@ from sqlalchemy.dialects.mysql import (
 )
 from sqlalchemy.engine.url import make_url, URL  # noqa: F401
 
+from superset.constants import TimeGrain
 from superset.utils.core import GenericDataType
 from tests.unit_tests.db_engine_specs.utils import (
     assert_column_spec,
@@ -262,3 +265,44 @@ def test_column_type_mutator(
     mock_cursor.description = description
 
     assert spec.fetch_data(mock_cursor) == expected_result
+
+
+@pytest.mark.parametrize(
+    "timestamp,time_grain,expected",
+    [
+        ("2026-09-18 00:00:00", TimeGrain.SECOND, "2026-09-18 00:00:00"),
+        ("2026-09-18 00:00:00", TimeGrain.MINUTE, "2026-09-18 00:00:00"),
+        ("2026-09-18 00:00:00", TimeGrain.HOUR, "2026-09-18 00:00:00"),
+        ("2026-09-18 08:15:30", TimeGrain.SECOND, "2026-09-18 08:15:30"),
+        ("2026-09-18 08:15:30", TimeGrain.MINUTE, "2026-09-18 08:15:00"),
+        ("2026-09-18 08:15:30", TimeGrain.HOUR, "2026-09-18 08:00:00"),
+        ("2026-09-18 23:59:59", TimeGrain.SECOND, "2026-09-18 23:59:59"),
+        ("2026-09-18 23:59:59", TimeGrain.MINUTE, "2026-09-18 23:59:00"),
+        ("2026-09-18 23:59:59", TimeGrain.HOUR, "2026-09-18 23:00:00"),
+    ],
+)
+def test_sub_day_time_grains_survive_sqlglot_round_trip(
+    timestamp: str,
+    time_grain: str,
+    expected: str,
+):
+    """
+    Sub-day grains must still truncate after SQLGlot parses and regenerates them.
+
+    The expression is round tripped through SQLGlot with the MySQL dialect, the
+    way Superset rewrites queries, and the emitted SQL is executed so the test
+    checks the returned bucket rather than the template string. DuckDB is used
+    as the local execution engine; it shares MySQL's `strftime` semantics for
+    these format specifiers.
+    """
+    from superset.db_engine_specs.mysql import MySQLEngineSpec as spec  # noqa: N813
+
+    column = f"CAST('{timestamp}' AS DATETIME)"
+    template = spec.get_time_grain_expressions()[time_grain]
+    source = f"SELECT {template.format(col=column)} AS bucket"
+
+    emitted = sqlglot.parse_one(source, read="mysql").sql(dialect="mysql")
+    executable = sqlglot.transpile(emitted, read="mysql", write="duckdb")[0]
+    bucket = duckdb.sql(executable).fetchone()[0]
+
+    assert str(bucket) == expected
