@@ -1481,6 +1481,50 @@ def test_get_limit_value(sql: str, engine: str, expected: str) -> None:
     assert SQLStatement(sql, engine).get_limit_value() == expected
 
 
+def test_clickhouse_simple_limit_by_keeps_groups() -> None:
+    """A per-group limit survives application of the overall SQL Lab row cap."""
+    statement = SQLStatement(
+        "SELECT id, ts FROM events ORDER BY ts DESC LIMIT 2 BY id", "clickhouse"
+    )
+    assert statement.get_limit_value() is None
+    statement.set_limit_value(1001, LimitMethod.FORCE_LIMIT)
+    assert "LIMIT 2 BY id" in statement.format()
+    assert SQLStatement(statement.format(), "clickhouse").get_limit_value() == 1001
+
+
+@pytest.mark.parametrize(
+    "sql, inner_limit, inner_offset_by",
+    [
+        (
+            "SELECT id, val FROM events ORDER BY id, val LIMIT 2 OFFSET 1 BY id",
+            "LIMIT 2",
+            "OFFSET 1 BY id",
+        ),
+        (
+            "SELECT id, val FROM events ORDER BY id, val LIMIT 1, 2 BY id",
+            "LIMIT 2",
+            "OFFSET 1 BY id",
+        ),
+        (
+            "SELECT id, val FROM events ORDER BY id, val LIMIT 1 OFFSET 2 BY id, val",
+            "LIMIT 1",
+            "OFFSET 2 BY id, val",
+        ),
+    ],
+)
+def test_clickhouse_offset_limit_by_keeps_groups(
+    sql: str, inner_limit: str, inner_offset_by: str
+) -> None:
+    """Offset forms of LIMIT BY are also per-group and must not become a row cap."""
+    statement = SQLStatement(sql, "clickhouse")
+    assert statement.get_limit_value() is None
+    statement.set_limit_value(1001, LimitMethod.FORCE_LIMIT)
+    formatted = statement.format()
+    assert formatted.startswith("SELECT\n  *\nFROM (\n  SELECT\n")
+    assert formatted.endswith(f"  {inner_limit}\n  {inner_offset_by}\n)\nLIMIT 1001")
+    assert SQLStatement(formatted, "clickhouse").get_limit_value() == 1001
+
+
 @pytest.mark.parametrize(
     "kql, expected",
     [
