@@ -1475,6 +1475,21 @@ LATERAL generate_series(1, value) AS i;
         ),
         # not really valid SQL, but let's roll with it
         ("SELECT * FROM my_table LIMIT invalid", "postgresql", None),
+        ("SELECT * FROM t FETCH FIRST 10 ROWS ONLY", "postgresql", 10),
+        ("SELECT * FROM t ORDER BY a FETCH NEXT 10 ROWS ONLY", "postgresql", 10),
+        ("SELECT * FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES", "postgresql", 10),
+        ("SELECT * FROM t ORDER BY a FETCH FIRST 10 ROWS ONLY", "oracle", 10),
+        ("SELECT * FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES", "oracle", 10),
+        (
+            "SELECT * FROM t ORDER BY a OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+            "mssql",
+            10,
+        ),
+        (
+            "SELECT * FROM (SELECT * FROM t FETCH FIRST 10 ROWS ONLY)",
+            "postgresql",
+            None,
+        ),
     ],
 )
 def test_get_limit_value(sql: str, engine: str, expected: str) -> None:
@@ -1689,6 +1704,42 @@ LIMIT 1000
             1000,
             LimitMethod.FETCH_MANY,
             "SELECT\n  *\nFROM birth_names\nLIMIT 555",
+        ),
+        (
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS ONLY",
+            "postgresql",
+            1000,
+            LimitMethod.FORCE_LIMIT,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 1000 ROWS ONLY",
+        ),
+        (
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES",
+            "postgresql",
+            1000,
+            LimitMethod.FORCE_LIMIT,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 1000 ROWS WITH TIES",
+        ),
+        (
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES",
+            "postgresql",
+            5,
+            LimitMethod.FORCE_LIMIT,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 5 ROWS WITH TIES",
+        ),
+        (
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS ONLY",
+            "oracle",
+            1000,
+            LimitMethod.FORCE_LIMIT,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 1000 ROWS ONLY",
+        ),
+        (
+            "SELECT a FROM t ORDER BY a OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+            "mssql",
+            1000,
+            LimitMethod.FORCE_LIMIT,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nOFFSET 5 ROWS\n"
+            "FETCH NEXT 1000 ROWS ONLY",
         ),
     ],
 )
