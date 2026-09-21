@@ -233,3 +233,22 @@ def test_adjust_engine_params_fully_qualified(
 
     uri = spec.adjust_engine_params(url, {}, None, schema)[0]
     assert str(uri) == expected_result
+
+
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        ("SELECT id, ts FROM events ORDER BY ts DESC LIMIT 2 BY id", None),
+        ("SELECT id, ts FROM events LIMIT 2 OFFSET 1 BY id", None),
+        ("SELECT id, ts FROM events LIMIT 1, 2 BY id", None),
+        ("SELECT id, ts FROM events LIMIT 2", 2),
+    ],
+)
+def test_get_limit_from_sql_limit_by(sql: str, expected: Optional[int]) -> None:
+    """
+    `LIMIT n BY <cols>` is a per-group limit and must not be reported as the
+    row limit of the query.
+    """
+    from superset.db_engine_specs.clickhouse import ClickHouseEngineSpec
+
+    assert ClickHouseEngineSpec.get_limit_from_sql(sql) == expected
