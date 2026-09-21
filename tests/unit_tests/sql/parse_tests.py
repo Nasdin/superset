@@ -1481,6 +1481,17 @@ def test_get_limit_value(sql: str, engine: str, expected: str) -> None:
     assert SQLStatement(sql, engine).get_limit_value() == expected
 
 
+def test_clickhouse_simple_limit_by_keeps_groups() -> None:
+    """A per-group limit survives application of the overall SQL Lab row cap."""
+    statement = SQLStatement(
+        "SELECT id, ts FROM events ORDER BY ts DESC LIMIT 2 BY id", "clickhouse"
+    )
+    assert statement.get_limit_value() is None
+    statement.set_limit_value(1001, LimitMethod.FORCE_LIMIT)
+    assert "LIMIT 2 BY id" in statement.format()
+    assert SQLStatement(statement.format(), "clickhouse").get_limit_value() == 1001
+
+
 @pytest.mark.parametrize(
     "kql, expected",
     [
