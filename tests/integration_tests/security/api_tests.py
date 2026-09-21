@@ -134,9 +134,17 @@ class TestSecurityCsrfApi(SupersetTestCase):
         """
         Security API: Test get CSRF no login
         """
-        uri = f"api/v1/{self.resource_name}/csrf_token/"
-        response = self.client.get(uri)
-        self.assert401(response)
+        public_role = security_manager.get_public_role()
+        original_permissions = list(public_role.permissions)
+        public_role.permissions = []
+        db.session.commit()
+        try:
+            uri = f"api/v1/{self.resource_name}/csrf_token/"
+            response = self.client.get(uri)
+            self.assert401(response)
+        finally:
+            public_role.permissions = original_permissions
+            db.session.commit()
 
     def test_login(self):
         """
