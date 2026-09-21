@@ -787,10 +787,32 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         present = {table.table.lower() for table in self.tables}
         return any(table.lower() in present for table in tables)
 
+    def _has_limit_by(self) -> bool:
+        """
+        Check if the statement uses ClickHouse's `LIMIT n BY <expressions>`.
+
+        `LIMIT BY` caps the number of rows per group, not the total number of rows
+        returned, so it should not be treated as a row limit.
+        """
+        return any(
+            node.args.get("expressions")
+            for node in (
+                self._parsed.args.get("limit"),
+                self._parsed.args.get("offset"),
+            )
+            if node is not None
+        )
+
     def get_limit_value(self) -> int | None:
         """
         Parse a SQL query and return the `LIMIT` or `TOP` value, if present.
+
+        Returns `None` for `LIMIT n BY <expressions>`, since that is a per-group
+        limit rather than a limit on the result set.
         """
+        if self._has_limit_by():
+            return None
+
         if limit_node := self._parsed.args.get("limit"):
             literal = limit_node.args.get("expression") or getattr(
                 limit_node, "this", None
@@ -808,11 +830,11 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         """
         Modify the `LIMIT` or `TOP` value of the SQL statement inplace.
         """
-        if method == LimitMethod.FORCE_LIMIT:
+        if method == LimitMethod.FORCE_LIMIT and not self._has_limit_by():
             self._parsed.args["limit"] = exp.Limit(
                 expression=exp.Literal(this=str(limit), is_string=False)
             )
-        elif method == LimitMethod.WRAP_SQL:
+        elif method in {LimitMethod.FORCE_LIMIT, LimitMethod.WRAP_SQL}:
             self._parsed = exp.Select(
                 expressions=[exp.Star()],
                 limit=exp.Limit(
