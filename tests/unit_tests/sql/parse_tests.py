@@ -1481,15 +1481,47 @@ def test_get_limit_value(sql: str, engine: str, expected: str) -> None:
     assert SQLStatement(sql, engine).get_limit_value() == expected
 
 
-def test_clickhouse_simple_limit_by_keeps_groups() -> None:
+@pytest.mark.parametrize(
+    "limit_clause, expected_clause",
+    [
+        ("LIMIT 2 BY id", "LIMIT 2 BY id"),
+        ("LIMIT 2 OFFSET 1 BY id", "LIMIT 2\n  OFFSET 1 BY id"),
+        ("LIMIT 1, 2 BY id", "LIMIT 2\n  OFFSET 1 BY id"),
+        ("LIMIT 2 BY id, ts", "LIMIT 2 BY id, ts"),
+        ("LIMIT 2 OFFSET 1 BY id, ts", "LIMIT 2\n  OFFSET 1 BY id, ts"),
+    ],
+)
+def test_clickhouse_limit_by_keeps_groups(
+    limit_clause: str, expected_clause: str
+) -> None:
     """A per-group limit survives application of the overall SQL Lab row cap."""
-    statement = SQLStatement(
-        "SELECT id, ts FROM events ORDER BY ts DESC LIMIT 2 BY id", "clickhouse"
-    )
+    sql = "SELECT id, ts FROM events ORDER BY ts DESC " + limit_clause  # noqa: S608
+    statement = SQLStatement(sql, "clickhouse")
     assert statement.get_limit_value() is None
     statement.set_limit_value(1001, LimitMethod.FORCE_LIMIT)
-    assert "LIMIT 2 BY id" in statement.format()
-    assert SQLStatement(statement.format(), "clickhouse").get_limit_value() == 1001
+    formatted = statement.format()
+    assert formatted == (
+        "SELECT\n  *\nFROM (\n  SELECT\n    id,\n    ts\n  FROM events\n"
+        f"  ORDER BY\n    ts DESC\n  {expected_clause}\n)\nLIMIT 1001"
+    )
+    assert SQLStatement(formatted, "clickhouse").get_limit_value() == 1001
+
+
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        ("SELECT id FROM events LIMIT 2 OFFSET 1", 1001),
+        ("SELECT id FROM events LIMIT 1, 2", 1001),
+        ("SELECT id FROM events LIMIT 5000", 1001),
+    ],
+)
+def test_clickhouse_global_limit_still_forced(sql: str, expected: int) -> None:
+    """Ordinary global limits (with or without offset) are still rewritten."""
+    statement = SQLStatement(sql, "clickhouse")
+    assert statement.get_limit_value() in {2, 5000}
+    statement.set_limit_value(1001, LimitMethod.FORCE_LIMIT)
+    assert "FROM (" not in statement.format()
+    assert statement.get_limit_value() == expected
 
 
 @pytest.mark.parametrize(

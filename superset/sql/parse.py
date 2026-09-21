@@ -788,9 +788,19 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         return any(table.lower() in present for table in tables)
 
     def _has_limit_by(self) -> bool:
-        """Recognize a per-group ClickHouse limit on the LIMIT node."""
-        limit_node = self._parsed.args.get("limit")
-        return bool(limit_node is not None and limit_node.args.get("expressions"))
+        """
+        Recognize a per-group ClickHouse ``LIMIT [n,] m [OFFSET n] BY expr``.
+
+        sqlglot attaches the ``BY`` expressions to the ``LIMIT`` node for the simple
+        form and to the ``OFFSET`` node for the offset forms.
+        """
+        return any(
+            node is not None and node.args.get("expressions")
+            for node in (
+                self._parsed.args.get("limit"),
+                self._parsed.args.get("offset"),
+            )
+        )
 
     def get_limit_value(self) -> int | None:
         """
