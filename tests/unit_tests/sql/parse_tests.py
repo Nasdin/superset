@@ -1475,6 +1475,16 @@ LATERAL generate_series(1, value) AS i;
         ),
         # not really valid SQL, but let's roll with it
         ("SELECT * FROM my_table LIMIT invalid", "postgresql", None),
+        # ClickHouse `LIMIT BY` is a per-group limit, not a row limit
+        (
+            "SELECT id, ts FROM events ORDER BY ts DESC LIMIT 2 BY id",
+            "clickhouse",
+            None,
+        ),
+        ("SELECT id, ts FROM events LIMIT 2 OFFSET 1 BY id", "clickhouse", None),
+        ("SELECT id, ts FROM events LIMIT 1, 2 BY id", "clickhouse", None),
+        ("SELECT id, ts FROM events LIMIT 2 BY id, ts", "clickhouse", None),
+        ("SELECT id, ts FROM events LIMIT 2", "clickhouse", 2),
     ],
 )
 def test_get_limit_value(sql: str, engine: str, expected: str) -> None:
@@ -1690,6 +1700,13 @@ LIMIT 1000
             LimitMethod.FETCH_MANY,
             "SELECT\n  *\nFROM birth_names\nLIMIT 555",
         ),
+        (
+            "SELECT id, ts FROM events LIMIT 2",
+            "clickhouse",
+            1001,
+            LimitMethod.FORCE_LIMIT,
+            "SELECT\n  id,\n  ts\nFROM events\nLIMIT 1001",
+        ),
     ],
 )
 def test_set_limit_value(
@@ -1702,6 +1719,75 @@ def test_set_limit_value(
     statement = SQLStatement(sql, engine)
     statement.set_limit_value(limit, method)
     assert statement.format() == expected
+
+
+@pytest.mark.parametrize(
+    "sql, expected",
+    [
+        (
+            "SELECT id, ts FROM events ORDER BY ts DESC LIMIT 2 BY id",
+            """
+SELECT
+  *
+FROM (
+  SELECT
+    id,
+    ts
+  FROM events
+  ORDER BY
+    ts DESC
+  LIMIT 2 BY id
+)
+LIMIT 1001
+            """.strip(),
+        ),
+        (
+            "SELECT id, ts FROM events LIMIT 2 OFFSET 1 BY id",
+            """
+SELECT
+  *
+FROM (
+  SELECT
+    id,
+    ts
+  FROM events
+  LIMIT 2
+  OFFSET 1 BY id
+)
+LIMIT 1001
+            """.strip(),
+        ),
+        (
+            "SELECT id, ts FROM events LIMIT 1, 2 BY id",
+            """
+SELECT
+  *
+FROM (
+  SELECT
+    id,
+    ts
+  FROM events
+  LIMIT 2
+  OFFSET 1 BY id
+)
+LIMIT 1001
+            """.strip(),
+        ),
+    ],
+)
+def test_set_limit_value_clickhouse_limit_by(sql: str, expected: str) -> None:
+    """
+    `FORCE_LIMIT` must not overwrite ClickHouse's per-group `LIMIT BY`; the
+    statement is wrapped instead so the row limit applies to the whole result.
+    """
+    statement = SQLStatement(sql, "clickhouse")
+    statement.set_limit_value(1001, LimitMethod.FORCE_LIMIT)
+    assert statement.format() == expected
+
+    # the rewritten SQL must round-trip through the ClickHouse dialect
+    reparsed = SQLStatement(statement.format(), "clickhouse")
+    assert reparsed.get_limit_value() == 1001
+    assert "BY id" in reparsed.format()
 
 
 @pytest.mark.parametrize(
