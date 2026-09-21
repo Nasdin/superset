@@ -787,10 +787,27 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         present = {table.table.lower() for table in self.tables}
         return any(table.lower() in present for table in tables)
 
+    def _has_limit_by(self) -> bool:
+        """
+        Recognize a per-group ClickHouse ``LIMIT [n,] m [OFFSET n] BY expr``.
+
+        sqlglot attaches the ``BY`` expressions to the ``LIMIT`` node for the simple
+        form and to the ``OFFSET`` node for the offset forms.
+        """
+        return any(
+            node is not None and node.args.get("expressions")
+            for node in (
+                self._parsed.args.get("limit"),
+                self._parsed.args.get("offset"),
+            )
+        )
+
     def get_limit_value(self) -> int | None:
         """
         Parse a SQL query and return the `LIMIT` or `TOP` value, if present.
         """
+        if self._has_limit_by():
+            return None
         if limit_node := self._parsed.args.get("limit"):
             literal = limit_node.args.get("expression") or getattr(
                 limit_node, "this", None
@@ -808,11 +825,11 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         """
         Modify the `LIMIT` or `TOP` value of the SQL statement inplace.
         """
-        if method == LimitMethod.FORCE_LIMIT:
+        if method == LimitMethod.FORCE_LIMIT and not self._has_limit_by():
             self._parsed.args["limit"] = exp.Limit(
                 expression=exp.Literal(this=str(limit), is_string=False)
             )
-        elif method == LimitMethod.WRAP_SQL:
+        elif method in {LimitMethod.FORCE_LIMIT, LimitMethod.WRAP_SQL}:
             self._parsed = exp.Select(
                 expressions=[exp.Star()],
                 limit=exp.Limit(
