@@ -151,6 +151,11 @@ cypress-install() {
 
   say "::group::Install Cypress"
   npm ci
+  # The Cypress binary lives outside node_modules (~/.cache/Cypress) and is
+  # only fetched by the package postinstall hook. Ensure it is present and
+  # runnable so a missing binary fails here rather than in every spec retry.
+  ./node_modules/.bin/cypress install
+  ./node_modules/.bin/cypress verify
   say "::endgroup::"
 
   cache-save cypress
