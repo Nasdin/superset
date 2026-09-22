@@ -3144,3 +3144,12 @@ def test_backtick_invalid_sql_still_fails() -> None:
     sql = "SELECT * FROM `table` WHERE"
     with pytest.raises(SupersetParseError):
         SQLScript(sql, "base")
+
+
+def test_fetch_first_limit_detected_for_sql_lab() -> None:
+    """SQL Lab must honor an explicit ANSI row limit before its dropdown cap."""
+    statement = SQLStatement(
+        "SELECT id FROM examples ORDER BY id FETCH FIRST 3 ROWS ONLY",
+        "postgresql",
+    )
+    assert statement.get_limit_value() == 3
