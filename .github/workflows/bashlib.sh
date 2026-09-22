@@ -164,6 +164,10 @@ cypress-run-all() {
   # Start Flask and run it in background
   # --no-debugger means disable the interactive debugger on the 500 page
   # so errors can print to stderr.
+  # --no-reload is required because .flaskenv sets FLASK_DEBUG=true, which
+  # otherwise enables the watchdog reloader over the whole workspace; test
+  # artifacts such as Playwright trace.zip files would restart the server
+  # mid-run and surface as ERR_CONNECTION_REFUSED in the browser tests.
   local flasklog="${HOME}/flask.log"
   local port=8081
   CYPRESS_BASE_URL="http://localhost:${port}"
@@ -173,7 +177,7 @@ cypress-run-all() {
   fi
   export CYPRESS_BASE_URL
 
-  nohup flask run --no-debugger -p $port >"$flasklog" 2>&1 </dev/null &
+  nohup flask run --no-debugger --no-reload -p $port >"$flasklog" 2>&1 </dev/null &
   local flaskProcessId=$!
 
   USE_DASHBOARD_FLAG=''
@@ -221,7 +225,8 @@ playwright-run() {
   fi
   export PLAYWRIGHT_BASE_URL
 
-  nohup flask run --no-debugger -p $port >"$flasklog" 2>&1 </dev/null &
+  # See cypress-run for why --no-reload is required.
+  nohup flask run --no-debugger --no-reload -p $port >"$flasklog" 2>&1 </dev/null &
   local flaskProcessId=$!
 
   # Ensure cleanup on exit

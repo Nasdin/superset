@@ -3144,3 +3144,62 @@ def test_backtick_invalid_sql_still_fails() -> None:
     sql = "SELECT * FROM `table` WHERE"
     with pytest.raises(SupersetParseError):
         SQLScript(sql, "base")
+
+
+def test_fetch_first_limit_detected_for_sql_lab() -> None:
+    """SQL Lab must honor an explicit ANSI row limit before its dropdown cap."""
+    statement = SQLStatement(
+        "SELECT id FROM examples ORDER BY id FETCH FIRST 3 ROWS ONLY",
+        "postgresql",
+    )
+    assert statement.get_limit_value() == 3
+
+
+@pytest.mark.parametrize(
+    "sql, engine, expected",
+    [
+        ("SELECT * FROM t FETCH FIRST 10 ROWS ONLY", "postgresql", 10),
+        ("SELECT * FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES", "postgresql", 10),
+        ("SELECT * FROM t FETCH NEXT 10 ROWS ONLY", "oracle", 10),
+        (
+            "SELECT * FROM t ORDER BY a OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+            "mssql",
+            10,
+        ),
+    ],
+)
+def test_get_limit_value_fetch(sql: str, engine: str, expected: int) -> None:
+    """
+    Test that `FETCH FIRST|NEXT n ROWS` clauses are detected as limits.
+    """
+    assert SQLStatement(sql, engine).get_limit_value() == expected
+
+
+@pytest.mark.parametrize(
+    "sql, engine, expected",
+    [
+        (
+            "SELECT * FROM t FETCH FIRST 10 ROWS ONLY",
+            "postgresql",
+            "SELECT\n  *\nFROM t\nFETCH FIRST 3 ROWS ONLY",
+        ),
+        (
+            "SELECT * FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES",
+            "postgresql",
+            "SELECT\n  *\nFROM t\nORDER BY\n  a\nFETCH FIRST 3 ROWS WITH TIES",
+        ),
+        (
+            "SELECT * FROM t ORDER BY a OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+            "mssql",
+            "SELECT\n  *\nFROM t\nORDER BY\n  a\nOFFSET 5 ROWS\nFETCH NEXT 3 ROWS ONLY",
+        ),
+    ],
+)
+def test_set_limit_value_fetch(sql: str, engine: str, expected: str) -> None:
+    """
+    Test that forcing a limit on a `FETCH` statement keeps the clause intact.
+    """
+    statement = SQLStatement(sql, engine)
+    statement.set_limit_value(3)
+    assert statement.format() == expected
+    assert statement.get_limit_value() == 3
