@@ -789,12 +789,15 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
 
     def get_limit_value(self) -> int | None:
         """
-        Parse a SQL query and return the `LIMIT` or `TOP` value, if present.
+        Parse a SQL query and return the `LIMIT`, `TOP` or `FETCH` value, if present.
         """
         if limit_node := self._parsed.args.get("limit"):
-            literal = limit_node.args.get("expression") or getattr(
-                limit_node, "this", None
-            )
+            if isinstance(limit_node, exp.Fetch):
+                literal = limit_node.args.get("count")
+            else:
+                literal = limit_node.args.get("expression") or getattr(
+                    limit_node, "this", None
+                )
             if isinstance(literal, exp.Literal) and literal.is_int:
                 return int(literal.name)
 
@@ -806,12 +809,18 @@ class SQLStatement(BaseSQLStatement[exp.Expression]):
         method: LimitMethod = LimitMethod.FORCE_LIMIT,
     ) -> None:
         """
-        Modify the `LIMIT` or `TOP` value of the SQL statement inplace.
+        Modify the `LIMIT`, `TOP` or `FETCH` value of the SQL statement inplace.
         """
         if method == LimitMethod.FORCE_LIMIT:
-            self._parsed.args["limit"] = exp.Limit(
-                expression=exp.Literal(this=str(limit), is_string=False)
-            )
+            existing = self._parsed.args.get("limit")
+            if isinstance(existing, exp.Fetch):
+                # keep the FETCH clause (and its WITH TIES modifier), only
+                # updating the row count
+                existing.set("count", exp.Literal(this=str(limit), is_string=False))
+            else:
+                self._parsed.args["limit"] = exp.Limit(
+                    expression=exp.Literal(this=str(limit), is_string=False)
+                )
         elif method == LimitMethod.WRAP_SQL:
             self._parsed = exp.Select(
                 expressions=[exp.Star()],

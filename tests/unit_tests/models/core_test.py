@@ -1258,6 +1258,78 @@ def test_apply_limit_to_sql(
     assert limited == expected
 
 
+@pytest.mark.parametrize(
+    "engine, sql, limit, expected",
+    [
+        (
+            "postgresql",
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS ONLY",
+            1000,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 10 ROWS ONLY",
+        ),
+        (
+            "postgresql",
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES",
+            1000,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 10 ROWS WITH TIES",
+        ),
+        (
+            "postgresql",
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS WITH TIES",
+            5,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 5 ROWS WITH TIES",
+        ),
+        (
+            "oracle",
+            "SELECT a FROM t ORDER BY a FETCH FIRST 10 ROWS ONLY",
+            1000,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nFETCH FIRST 10 ROWS ONLY",
+        ),
+        (
+            "mssql",
+            "SELECT a FROM t ORDER BY a OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
+            1000,
+            "SELECT\n  a\nFROM t\nORDER BY\n  a\nOFFSET 5 ROWS\n"
+            "FETCH NEXT 10 ROWS ONLY",
+        ),
+    ],
+)
+def test_apply_limit_to_sql_fetch(
+    engine: str,
+    sql: str,
+    limit: int,
+    expected: str,
+    mocker: MockerFixture,
+) -> None:
+    """
+    Test that `apply_limit_to_sql` honors ANSI `FETCH FIRST/NEXT` clauses.
+    """
+    db = Database(database_name="test_database", sqlalchemy_uri="sqlite://")
+    db_engine_spec = mocker.MagicMock(
+        engine=engine,
+        limit_method=LimitMethod.FORCE_LIMIT,
+    )
+    db.get_db_engine_spec = mocker.MagicMock(return_value=db_engine_spec)
+
+    assert db.apply_limit_to_sql(sql, limit) == expected
+
+
+def test_apply_limit_to_sql_oracle_round_trip(mocker: MockerFixture) -> None:
+    """
+    Test that a `FETCH FIRST` clause emitted by Superset is read back on Oracle.
+    """
+    db = Database(database_name="test_database", sqlalchemy_uri="sqlite://")
+    db_engine_spec = mocker.MagicMock(
+        engine="oracle",
+        limit_method=LimitMethod.FORCE_LIMIT,
+    )
+    db.get_db_engine_spec = mocker.MagicMock(return_value=db_engine_spec)
+
+    limited = db.apply_limit_to_sql("SELECT a FROM t", 100)
+    assert limited == "SELECT\n  a\nFROM t\nFETCH FIRST 100 ROWS ONLY"
+    assert db.apply_limit_to_sql(limited, 1000) == limited
+
+
 def test_database_execute_delegates_to_sql_executor(mocker: MockerFixture) -> None:
     """Test that Database.execute() delegates to SQLExecutor.execute()."""
     from unittest.mock import MagicMock
